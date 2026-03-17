@@ -1,0 +1,38 @@
+# Control de versiones
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+*.egg-info
+dist/
+build/
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker (no incluir en el contexto de build)
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Variables de entorno — NUNCA incluir en imagen
+.env
+.env.*
+!.env.example
+
+# Documentación
+*.md
+docs/
+
+# OS
+.DS_Store
+Thumbs.db
