@@ -10,7 +10,7 @@ from app.api.routes import chats
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Inicia Auth (login usuario/contraseña) y Amojo al arrancar."""
-    from config import KOMMO_USERNAME, KOMMO_PASSWORD
+    from app.core.config import KOMMO_USERNAME, KOMMO_PASSWORD
 
     if not all([KOMMO_USERNAME, KOMMO_PASSWORD]):
         raise RuntimeError(

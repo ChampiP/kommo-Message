@@ -11,7 +11,7 @@ import requests
 from typing import Optional, Callable
 from datetime import datetime
 
-from config import KOMMO_BASE_URL
+from app.core.config import KOMMO_BASE_URL
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)

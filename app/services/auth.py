@@ -7,7 +7,7 @@ import time
 import requests
 from typing import Optional
 
-from config import (
+from app.core.config import (
     KOMMO_BASE_URL,
     KOMMO_USERNAME,
     KOMMO_PASSWORD,

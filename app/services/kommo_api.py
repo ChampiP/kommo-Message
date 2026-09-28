@@ -5,7 +5,7 @@ Usa requests.Session (cookies) en lugar de Bearer.
 import requests
 from typing import Optional, Any
 
-from config import KOMMO_BASE_URL, KOMMO_AMOJO_BASE_URL
+from app.core.config import KOMMO_BASE_URL, KOMMO_AMOJO_BASE_URL
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)

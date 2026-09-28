@@ -28,7 +28,6 @@ COPY --from=builder /install /usr/local
 
 # Copiar código fuente
 COPY --chown=appuser:appuser app/ ./app/
-COPY --chown=appuser:appuser config.py .
 
 USER appuser
 
