@@ -12,7 +12,7 @@ Remove the test-specific Kommo URL and all hardcoded service URLs from runtime c
 
 ## Acceptance criteria
 - Runtime URLs come from environment variables; no test-domain default remains in code.
-- No `[REMOVED_TEST_DOMAIN]` or other user test URL remains in tracked files or Git history.
+- No user test domain or other unnecessary URL remains in tracked files or Git history.
 - `.env` remains local and untracked.
 - The sanitized branch is pushed to origin after explicit history rewrite.
 - A rollback reference is recorded before rewriting history.
