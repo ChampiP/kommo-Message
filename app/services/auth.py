@@ -30,7 +30,7 @@ class KommoAuth:
         self._refresh_thread: Optional[threading.Thread] = None
         self._stop = False
 
-    def login(self) -> requests.Session:
+    def _perform_login(self) -> requests.Session:
         base = KOMMO_BASE_URL.rstrip("/")
         session = requests.Session()
 
@@ -75,16 +75,50 @@ class KommoAuth:
             "Kommo authentication successful: active_cookie_names=%s", cookie_names
         )
 
-        with self._lock:
-            self._session = session
-
         return session
+
+    def login(self) -> requests.Session:
+        with self._lock:
+            session = self._perform_login()
+            self._session = session
+            return session
 
     def get_session(self) -> requests.Session:
         with self._lock:
-            if self._session:
+            if self._session is not None:
                 return self._session
-        return self.login()
+            session = self._perform_login()
+            self._session = session
+            return session
+
+    def recover_session(
+        self, failed_session: Optional[requests.Session] = None
+    ) -> requests.Session:
+        """
+        Recovers the Kommo session. Single-flight: if another thread already
+        renewed the session while this thread was waiting for the lock, reuses that new session
+        without performing duplicate logins.
+        """
+        with self._lock:
+            if (
+                failed_session is not None
+                and self._session is not None
+                and self._session is not failed_session
+            ):
+                logger.info(
+                    "Kommo session was already recovered by another thread; reusing updated session"
+                )
+                return self._session
+
+            logger.info("Recovering Kommo session via re-login")
+            session = self._perform_login()
+            self._session = session
+            return session
+
+    def invalidate(self) -> None:
+        with self._lock:
+            self._session = None
+            logger.info("Kommo in-memory session invalidated")
 
     def _refresh_loop(self) -> None:
         while not self._stop:

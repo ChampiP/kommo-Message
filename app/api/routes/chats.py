@@ -50,13 +50,14 @@ def get_chat_tokens(
         raise HTTPException(status_code=503, detail=f"Sesión Amojo no disponible: {str(e)}")
 
     try:
-        crm_account_id = kommo_api.get_crm_account_id(session)
+        crm_account_id = kommo_api.get_crm_account_id(session, auth=auth)
+        session = auth.get_session()
     except Exception as e:
         logger.error("Failed to get CRM account for chat_id=%s: %s", chat_id, e)
         raise HTTPException(status_code=503, detail=f"Error al obtener account: {str(e)}")
 
     try:
-        talk = kommo_api.get_talk_by_chat_id(session, chat_id)
+        talk = kommo_api.get_talk_by_chat_id(session, chat_id, auth=auth)
         crm_dialog_id = talk["crm_dialog_id"]
         crm_contact_id = talk["crm_contact_id"]
     except ValueError as e:
@@ -68,7 +69,7 @@ def get_chat_tokens(
 
     try:
         recipient_id = kommo_api.get_recipient_id(
-            x_auth_token, session_account_uuid, chat_id
+            x_auth_token, session_account_uuid, chat_id, amojo=amojo
         )
     except Exception as e:
         logger.error("Upstream error retrieving recipient for chat_id=%s: %s", chat_id, e)
@@ -87,6 +88,6 @@ def get_chat_tokens(
         "crm_dialog_id": crm_dialog_id,
         "crm_contact_id": crm_contact_id,
         "crm_account_id": crm_account_id,
-        "x_auth_token": x_auth_token,
-        "session_account_uuid": session_account_uuid,
+        "x_auth_token": amojo.get_x_auth_token(),
+        "session_account_uuid": amojo.get_session_account_uuid(),
     }

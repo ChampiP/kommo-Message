@@ -19,11 +19,47 @@ def _session_headers() -> dict:
     }
 
 
-def get_crm_account_id(session: requests.Session) -> int:
+def _recover_kommo_session(auth: Any, failed_session: requests.Session) -> requests.Session:
+    if hasattr(auth, "recover_session"):
+        return auth.recover_session(failed_session=failed_session)
+    elif callable(auth):
+        return auth(failed_session)
+    raise ValueError("Invalid auth recovery handler for Kommo session")
+
+
+def _recover_amojo(amojo: Any, failed_token: str) -> tuple[str, Optional[str]]:
+    if hasattr(amojo, "recover_session"):
+        res = amojo.recover_session(failed_token=failed_token)
+        if isinstance(res, tuple):
+            return res[0], res[1]
+        uuid = amojo.get_session_account_uuid() if hasattr(amojo, "get_session_account_uuid") else None
+        return res, uuid
+    elif hasattr(amojo, "recover_token"):
+        token = amojo.recover_token(failed_token=failed_token)
+        uuid = amojo.get_session_account_uuid() if hasattr(amojo, "get_session_account_uuid") else None
+        return token, uuid
+    elif callable(amojo):
+        res = amojo(failed_token)
+        if isinstance(res, tuple):
+            return res[0], res[1]
+        return res, None
+    raise ValueError("Invalid amojo recovery handler")
+
+
+def get_crm_account_id(
+    session: requests.Session, auth: Optional[Any] = None
+) -> int:
     """GET /api/v4/account -> id (crm_account_id). Usa cookies de sesión."""
     url = f"{KOMMO_BASE_URL.rstrip('/')}/api/v4/account"
     try:
         res = session.get(url, headers=_session_headers())
+        if res.status_code in (401, 403) and auth is not None:
+            logger.warning(
+                "Kommo /api/v4/account returned status_code=%d, attempting session recovery",
+                res.status_code,
+            )
+            session = _recover_kommo_session(auth, session)
+            res = session.get(url, headers=_session_headers())
         res.raise_for_status()
         data = res.json()
         account_id = data.get("id")
@@ -38,7 +74,9 @@ def get_crm_account_id(session: requests.Session) -> int:
         raise
 
 
-def get_talk_by_chat_id(session: requests.Session, chat_id: str) -> dict:
+def get_talk_by_chat_id(
+    session: requests.Session, chat_id: str, auth: Optional[Any] = None
+) -> dict:
     """
     GET /ajax/v4/inbox/list, busca talk con chat_id coincidente.
     Retorna {"crm_dialog_id": int, "crm_contact_id": int}.
@@ -52,6 +90,14 @@ def get_talk_by_chat_id(session: requests.Session, chat_id: str) -> dict:
     }
     try:
         res = session.get(url, params=params, headers=_session_headers())
+        if res.status_code in (401, 403) and auth is not None:
+            logger.warning(
+                "Kommo inbox list returned status_code=%d for chat_id=%s, attempting session recovery",
+                res.status_code,
+                chat_id,
+            )
+            session = _recover_kommo_session(auth, session)
+            res = session.get(url, params=params, headers=_session_headers())
         res.raise_for_status()
         data = res.json()
     except requests.RequestException as e:
@@ -103,23 +149,38 @@ def get_recipient_id(
     x_auth_token: str,
     session_account_uuid: str,
     chat_id: str,
+    amojo: Optional[Any] = None,
 ) -> Optional[str]:
     """
     GET Amojo /v1/chats/{uuid}/{chat_id}/messages.
     Retorna recipient.id del primer mensaje con recipient, o None.
     Maneja diferentes estructuras de respuesta de manera robusta sin inventar IDs.
     """
-    url = f"{KOMMO_AMOJO_BASE_URL.rstrip('/')}/v1/chats/{session_account_uuid}/{chat_id}/messages"
+    current_token = x_auth_token
+    current_uuid = session_account_uuid
+    url = f"{KOMMO_AMOJO_BASE_URL.rstrip('/')}/v1/chats/{current_uuid}/{chat_id}/messages"
     params = {"stand": "v16", "limit": 20}
     headers = {
         "Accept": "application/json, text/plain, */*",
-        "X-Auth-Token": x_auth_token,
+        "X-Auth-Token": current_token,
         "Origin": KOMMO_BASE_URL.rstrip("/"),
         "Referer": f"{KOMMO_BASE_URL.rstrip('/')}/",
     }
 
     try:
         res = requests.get(url, params=params, headers=headers)
+        if res.status_code in (401, 403) and amojo is not None:
+            logger.warning(
+                "Amojo messages returned status_code=%d for chat_id=%s, attempting token recovery",
+                res.status_code,
+                chat_id,
+            )
+            current_token, new_uuid = _recover_amojo(amojo, current_token)
+            if new_uuid:
+                current_uuid = new_uuid
+            url = f"{KOMMO_AMOJO_BASE_URL.rstrip('/')}/v1/chats/{current_uuid}/{chat_id}/messages"
+            headers["X-Auth-Token"] = current_token
+            res = requests.get(url, params=params, headers=headers)
         res.raise_for_status()
     except requests.RequestException as e:
         status = getattr(getattr(e, "response", None), "status_code", "N/A")
