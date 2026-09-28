@@ -54,3 +54,5 @@ docker-compose.override.yml
 
 skills-lock.json
 .agents/
+# Local Pi runtime state
+.atl/
