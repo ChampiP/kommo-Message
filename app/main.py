@@ -9,7 +9,7 @@ from app.api.routes import chats
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Inicia Auth (login usuario/contraseña) y Amojo al arrancar."""
+    """Configura Auth (login usuario/contraseña) y Amojo bajo demanda al arrancar."""
     from app.core.config import KOMMO_USERNAME, KOMMO_PASSWORD
 
     if not all([KOMMO_USERNAME, KOMMO_PASSWORD]):
@@ -19,18 +19,15 @@ async def lifespan(app: FastAPI):
         )
 
     auth = KommoAuth()
-    amojo = AmojoSession(session_provider=auth.get_session)
+    amojo = AmojoSession(
+        session_provider=auth.get_session,
+        auth_recovery=auth.recover_session,
+    )
 
     app.state.auth = auth
     app.state.amojo = amojo
 
-    auth.start_background_refresh()
-    amojo.start_background_refresh()
-
     yield
-
-    auth.stop_background_refresh()
-    amojo.stop_background_refresh()
 
 
 app = FastAPI(

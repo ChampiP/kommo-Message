@@ -129,6 +129,51 @@ class TestChatsRoute(unittest.TestCase):
 
         self.assertEqual(ctx.exception.status_code, 503)
 
+    @patch("app.services.kommo_api.get_recipient_id")
+    @patch("app.services.kommo_api.get_talk_by_chat_id")
+    @patch("app.services.kommo_api.get_crm_account_id")
+    def test_get_chat_tokens_passes_recovery_handlers_to_api_layer(
+        self, mock_account, mock_talk, mock_recipient
+    ):
+        mock_account.return_value = 123456
+        mock_talk.return_value = {"crm_dialog_id": 111, "crm_contact_id": 222}
+        mock_recipient.return_value = "rec-123"
+
+        get_chat_tokens(
+            chat_id="test-chat",
+            auth=self.mock_auth,
+            amojo=self.mock_amojo,
+        )
+
+        mock_account.assert_called_once_with(self.mock_session, auth=self.mock_auth)
+        mock_talk.assert_called_once_with(self.mock_session, "test-chat", auth=self.mock_auth)
+        mock_recipient.assert_called_once_with(
+            "mock_x_auth_token", "mock_account_uuid", "test-chat", amojo=self.mock_amojo
+        )
+
+    @patch("app.services.kommo_api.get_recipient_id")
+    @patch("app.services.kommo_api.get_talk_by_chat_id")
+    @patch("app.services.kommo_api.get_crm_account_id")
+    def test_get_chat_tokens_returns_latest_amojo_token_after_recovery(
+        self, mock_account, mock_talk, mock_recipient
+    ):
+        mock_account.return_value = 123456
+        mock_talk.return_value = {"crm_dialog_id": 111, "crm_contact_id": 222}
+        mock_recipient.return_value = "rec-123"
+
+        # Simulate token recovery where get_x_auth_token returns initial then refreshed token
+        self.mock_amojo.get_x_auth_token.side_effect = ["old_token", "recovered_token"]
+        self.mock_amojo.get_session_account_uuid.return_value = "recovered_uuid"
+
+        result = get_chat_tokens(
+            chat_id="test-chat",
+            auth=self.mock_auth,
+            amojo=self.mock_amojo,
+        )
+
+        self.assertEqual(result["x_auth_token"], "recovered_token")
+        self.assertEqual(result["session_account_uuid"], "recovered_uuid")
+
 
 if __name__ == "__main__":
     unittest.main()
