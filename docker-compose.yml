@@ -1,9 +1,9 @@
 services:
-  inspira_bot:
+  kommo_mesager:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: inspira_bot
+    container_name: kommo-mesager
     restart: unless-stopped
     ports:
       - "8001:8001"
