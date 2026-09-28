@@ -4,8 +4,14 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # URLs
-KOMMO_BASE_URL = os.getenv("KOMMO_BASE_URL", "https://[REMOVED_TEST_DOMAIN]")
-KOMMO_AMOJO_BASE_URL = os.getenv("KOMMO_AMOJO_BASE_URL", "[REMOVED_PROVIDER_URL]")
+KOMMO_BASE_URL = os.getenv("KOMMO_BASE_URL")
+if not KOMMO_BASE_URL:
+    raise ValueError("KOMMO_BASE_URL environment variable is required")
+
+KOMMO_AMOJO_BASE_URL = os.getenv("KOMMO_AMOJO_BASE_URL")
+if not KOMMO_AMOJO_BASE_URL:
+    raise ValueError("KOMMO_AMOJO_BASE_URL environment variable is required")
+KOMMO_WS_URL = os.getenv("KOMMO_WS_URL")
 
 # Login usuario/contraseña
 KOMMO_USERNAME = os.getenv("KOMMO_USERNAME")

@@ -1,11 +1,19 @@
-import websocket
 import json
+import os
 import threading
+try:
+    import websocket
+except ImportError:
+    websocket = None
+from dotenv import load_dotenv
+
+load_dotenv()
 
 class KommoWSClient:
-    def __init__(self, cookies_str, crm_account_id, crm_user_id):
-        # URL extraída de tu log de red
-        self.ws_url = "[REMOVED_PROVIDER_URL]"
+    def __init__(self, cookies_str, crm_account_id, crm_user_id, ws_url=None):
+        self.ws_url = ws_url or os.getenv("KOMMO_WS_URL")
+        if not self.ws_url:
+            raise ValueError("KOMMO_WS_URL environment variable is required")
         self.cookies_str = cookies_str
         self.crm_account_id = crm_account_id
         self.crm_user_id = crm_user_id
@@ -30,6 +38,8 @@ class KommoWSClient:
         print("[-] WebSocket desconectado.")
 
     def iniciar_en_segundo_plano(self):
+        if websocket is None:
+            raise RuntimeError("websocket-client is required to run the WebSocket client")
         ws = websocket.WebSocketApp(
             self.ws_url,
             cookie=self.cookies_str,
