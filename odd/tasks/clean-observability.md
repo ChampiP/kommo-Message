@@ -28,4 +28,5 @@ Fix the chat-token endpoint so missing recipient data is represented accurately 
 - Live Amojo inspection confirmed four messages with `recipient: null`; recipient cannot be invented safely.
 - Kommo webhook inspection confirmed incoming external author data is available as `message[add][0][author][id]`, alongside `chat_id`, `contact_id`, and `type=incoming`.
 - Verification: 18 unit tests pass; Docker is healthy; public endpoint returns HTTP 200 with `recipient_id: null` for the reported chat.
-- Current branch: `main`; pre-existing modified file: `.gitignore`.
+- Current branch: `fix/kommo-mesager-observability`; pre-existing modified file: `.gitignore`.
+- Work-unit commits: `2eee485` (`fix(api): harden chat token observability`) and `640c60f` (`chore(docker): rename Kommo service container`).
