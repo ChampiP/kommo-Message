@@ -18,8 +18,10 @@ class TestChatsRoute(unittest.TestCase):
         self.mock_auth.get_session.return_value = self.mock_session
 
         self.mock_amojo = MagicMock()
-        self.mock_amojo.get_x_auth_token.return_value = "mock_x_auth_token"
-        self.mock_amojo.get_session_account_uuid.return_value = "mock_account_uuid"
+        self.mock_amojo.get_credentials.return_value = (
+            "mock_x_auth_token",
+            "mock_account_uuid",
+        )
 
     @patch("app.services.kommo_api.get_recipient_id")
     @patch("app.services.kommo_api.get_talk_by_chat_id")
@@ -41,6 +43,7 @@ class TestChatsRoute(unittest.TestCase):
         self.assertEqual(result["crm_account_id"], 123456)
         self.assertEqual(result["x_auth_token"], "mock_x_auth_token")
         self.assertEqual(result["session_account_uuid"], "mock_account_uuid")
+        self.assertEqual(self.mock_amojo.get_credentials.call_count, 2)
 
     @patch("app.services.kommo_api.get_recipient_id")
     @patch("app.services.kommo_api.get_talk_by_chat_id")
@@ -118,7 +121,7 @@ class TestChatsRoute(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 503)
 
     def test_get_chat_tokens_amojo_unavailable_returns_503(self):
-        self.mock_amojo.get_x_auth_token.side_effect = AmojoError("Amojo timeout")
+        self.mock_amojo.get_credentials.side_effect = AmojoError("Amojo timeout")
 
         with self.assertRaises(HTTPException) as ctx:
             get_chat_tokens(
@@ -128,6 +131,72 @@ class TestChatsRoute(unittest.TestCase):
             )
 
         self.assertEqual(ctx.exception.status_code, 503)
+        self.assertIn("Sesión Amojo no disponible", ctx.exception.detail)
+
+    def test_get_chat_tokens_initial_amojo_autherror_returns_503(self):
+        self.mock_amojo.get_credentials.side_effect = AuthError("Kommo relogin failed during token fetch")
+
+        with self.assertRaises(HTTPException) as ctx:
+            get_chat_tokens(
+                chat_id="test-chat",
+                auth=self.mock_auth,
+                amojo=self.mock_amojo,
+            )
+
+        self.assertEqual(ctx.exception.status_code, 503)
+        self.assertIn("Sesión Amojo no disponible", ctx.exception.detail)
+
+    @patch("app.services.kommo_api.get_recipient_id")
+    @patch("app.services.kommo_api.get_talk_by_chat_id")
+    @patch("app.services.kommo_api.get_crm_account_id")
+    def test_get_chat_tokens_final_amojo_autherror_returns_503(
+        self, mock_account, mock_talk, mock_recipient
+    ):
+        mock_account.return_value = 123456
+        mock_talk.return_value = {"crm_dialog_id": 111, "crm_contact_id": 222}
+        mock_recipient.return_value = "rec-123"
+
+        # Initial call returns credentials, final call raises AuthError
+        self.mock_amojo.get_credentials.side_effect = [
+            ("tok-1", "uuid-1"),
+            AuthError("Kommo auth failed on final token read"),
+        ]
+
+        with self.assertRaises(HTTPException) as ctx:
+            get_chat_tokens(
+                chat_id="test-chat",
+                auth=self.mock_auth,
+                amojo=self.mock_amojo,
+            )
+
+        self.assertEqual(ctx.exception.status_code, 503)
+        self.assertIn("Sesión Amojo no disponible", ctx.exception.detail)
+
+    @patch("app.services.kommo_api.get_recipient_id")
+    @patch("app.services.kommo_api.get_talk_by_chat_id")
+    @patch("app.services.kommo_api.get_crm_account_id")
+    def test_get_chat_tokens_final_amojo_amojoerror_returns_503(
+        self, mock_account, mock_talk, mock_recipient
+    ):
+        mock_account.return_value = 123456
+        mock_talk.return_value = {"crm_dialog_id": 111, "crm_contact_id": 222}
+        mock_recipient.return_value = "rec-123"
+
+        # Initial call returns credentials, final call raises AmojoError
+        self.mock_amojo.get_credentials.side_effect = [
+            ("tok-1", "uuid-1"),
+            AmojoError("Amojo service failed on final read"),
+        ]
+
+        with self.assertRaises(HTTPException) as ctx:
+            get_chat_tokens(
+                chat_id="test-chat",
+                auth=self.mock_auth,
+                amojo=self.mock_amojo,
+            )
+
+        self.assertEqual(ctx.exception.status_code, 503)
+        self.assertIn("Sesión Amojo no disponible", ctx.exception.detail)
 
     @patch("app.services.kommo_api.get_recipient_id")
     @patch("app.services.kommo_api.get_talk_by_chat_id")
@@ -150,6 +219,7 @@ class TestChatsRoute(unittest.TestCase):
         mock_recipient.assert_called_once_with(
             "mock_x_auth_token", "mock_account_uuid", "test-chat", amojo=self.mock_amojo
         )
+        self.assertEqual(self.mock_amojo.get_credentials.call_count, 2)
 
     @patch("app.services.kommo_api.get_recipient_id")
     @patch("app.services.kommo_api.get_talk_by_chat_id")
@@ -161,9 +231,11 @@ class TestChatsRoute(unittest.TestCase):
         mock_talk.return_value = {"crm_dialog_id": 111, "crm_contact_id": 222}
         mock_recipient.return_value = "rec-123"
 
-        # Simulate token recovery where get_x_auth_token returns initial then refreshed token
-        self.mock_amojo.get_x_auth_token.side_effect = ["old_token", "recovered_token"]
-        self.mock_amojo.get_session_account_uuid.return_value = "recovered_uuid"
+        # Simulate token recovery where get_credentials returns initial then refreshed credentials
+        self.mock_amojo.get_credentials.side_effect = [
+            ("old_token", "old_uuid"),
+            ("recovered_token", "recovered_uuid"),
+        ]
 
         result = get_chat_tokens(
             chat_id="test-chat",
@@ -171,8 +243,12 @@ class TestChatsRoute(unittest.TestCase):
             amojo=self.mock_amojo,
         )
 
+        mock_recipient.assert_called_once_with(
+            "old_token", "old_uuid", "test-chat", amojo=self.mock_amojo
+        )
         self.assertEqual(result["x_auth_token"], "recovered_token")
         self.assertEqual(result["session_account_uuid"], "recovered_uuid")
+        self.assertEqual(self.mock_amojo.get_credentials.call_count, 2)
 
 
 if __name__ == "__main__":

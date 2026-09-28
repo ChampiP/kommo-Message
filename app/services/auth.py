@@ -12,6 +12,7 @@ from app.core.config import (
     KOMMO_USERNAME,
     KOMMO_PASSWORD,
     KOMMO_SESSION_REFRESH_INTERVAL,
+    DEFAULT_HTTP_TIMEOUT,
 )
 from app.logging_config import get_logger
 
@@ -39,7 +40,7 @@ class KommoAuth:
         # 1. GET / → obtiene cookies (csrf_token). No raise_for_status porque Kommo
         # puede devolver 401 para visitas no autenticadas mientras establece cookies.
         try:
-            session.get(f"{base}/")
+            session.get(f"{base}/", timeout=DEFAULT_HTTP_TIMEOUT)
         except requests.RequestException as e:
             logger.error("Failed to reach Kommo base URL during login: %s", e)
             raise AuthError(f"Error al conectar con Kommo: {e}")
@@ -58,18 +59,23 @@ class KommoAuth:
                     "csrf_token": csrf_token,
                     "temporary_auth": "N",
                 },
+                timeout=DEFAULT_HTTP_TIMEOUT,
             )
         except requests.RequestException as e:
             logger.error("Network error during Kommo login authorization: %s", e)
             raise AuthError(f"Error en autorización Kommo: {e}")
 
         cookie_names = list(session.cookies.keys())
-        if res.status_code not in (200, 302) and not session.cookies.get("session_id"):
+        has_session_cookie = bool(session.cookies.get("session_id"))
+        if res.status_code not in (200, 302) or not has_session_cookie:
             logger.error(
-                "Kommo login returned status_code=%d without session cookie",
+                "Kommo login failed: status_code=%d, session_id_cookie=%s",
                 res.status_code,
+                has_session_cookie,
             )
-            raise AuthError(f"Kommo login falló: status {res.status_code}")
+            if res.status_code not in (200, 302):
+                raise AuthError(f"Kommo login falló: status {res.status_code}")
+            raise AuthError("Kommo login falló: cookie session_id no encontrada")
 
         logger.info(
             "Kommo authentication successful: active_cookie_names=%s", cookie_names

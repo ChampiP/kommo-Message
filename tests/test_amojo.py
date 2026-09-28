@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 import requests
 
+from app.core.config import DEFAULT_HTTP_TIMEOUT
 from app.services.amojo import AmojoSession, AmojoError
 
 
@@ -168,6 +169,97 @@ class TestAmojoSession(unittest.TestCase):
             self.amojo.get_x_auth_token()
 
         self.mock_auth_recovery.assert_not_called()
+
+    def test_get_credentials_atomic_fetch_and_caching(self):
+        self.mock_session.post.return_value = self._mock_success_response("tok-atomic", "acc-atomic")
+
+        # First call: fetches via chats/session
+        tok, uuid = self.amojo.get_credentials()
+        self.assertEqual(tok, "tok-atomic")
+        self.assertEqual(uuid, "acc-atomic")
+        self.assertEqual(self.mock_session.post.call_count, 1)
+
+        # Second call: returns cached values without calling post again
+        tok2, uuid2 = self.amojo.get_credentials()
+        self.assertEqual(tok2, "tok-atomic")
+        self.assertEqual(uuid2, "acc-atomic")
+        self.assertEqual(self.mock_session.post.call_count, 1)
+
+        # get_x_auth_token and get_session_account_uuid match
+        self.assertEqual(self.amojo.get_x_auth_token(), "tok-atomic")
+        self.assertEqual(self.amojo.get_session_account_uuid(), "acc-atomic")
+        self.assertEqual(self.mock_session.post.call_count, 1)
+
+    def test_recover_session_returns_consistent_pair_single_flight_concurrent(self):
+        self.mock_session.post.return_value = self._mock_success_response("tok-1", "acc-1")
+        self.amojo.get_credentials()
+        self.assertEqual(self.mock_session.post.call_count, 1)
+
+        refresh_count = 0
+
+        def slow_post(*args, **kwargs):
+            nonlocal refresh_count
+            refresh_count += 1
+            time.sleep(0.05)
+            return self._mock_success_response("tok-2", "acc-2")
+
+        self.mock_session.post.side_effect = slow_post
+
+        threads = []
+        results = [None] * 10
+
+        def worker(index):
+            results[index] = self.amojo.recover_session(failed_token="tok-1")
+
+        for i in range(10):
+            t = threading.Thread(target=worker, args=(i,))
+            threads.append(t)
+            t.start()
+
+        for t in threads:
+            t.join()
+
+        self.assertEqual(refresh_count, 1)
+        for res in results:
+            self.assertEqual(res, ("tok-2", "acc-2"))
+        self.assertEqual(self.amojo.get_credentials(), ("tok-2", "acc-2"))
+
+    def test_recover_session_ignores_stale_token(self):
+        self.mock_session.post.side_effect = [
+            self._mock_success_response("tok-1", "acc-1"),
+            self._mock_success_response("tok-2", "acc-2"),
+        ]
+
+        self.amojo.get_credentials()
+        self.amojo.recover_session(failed_token="tok-1")
+
+        # Stale recovery call
+        recovered = self.amojo.recover_session(failed_token="tok-1")
+        self.assertEqual(recovered, ("tok-2", "acc-2"))
+        self.assertEqual(self.mock_session.post.call_count, 2)
+
+    def test_amojo_propagates_http_timeout(self):
+        self.mock_session.post.return_value = self._mock_success_response("tok-t", "acc-t")
+        self.amojo.get_credentials()
+
+        self.mock_session.post.assert_called_once()
+        self.assertEqual(self.mock_session.post.call_args[1].get("timeout"), DEFAULT_HTTP_TIMEOUT)
+
+    def test_amojo_propagates_http_timeout_on_recovery(self):
+        res_401 = MagicMock()
+        res_401.status_code = 401
+        res_200 = self._mock_success_response("tok-fresh", "acc-fresh")
+
+        new_session = MagicMock()
+        new_session.post.return_value = res_200
+
+        self.mock_session.post.return_value = res_401
+        self.mock_auth_recovery.return_value = new_session
+
+        self.amojo.get_credentials()
+
+        self.assertEqual(self.mock_session.post.call_args[1].get("timeout"), DEFAULT_HTTP_TIMEOUT)
+        self.assertEqual(new_session.post.call_args[1].get("timeout"), DEFAULT_HTTP_TIMEOUT)
 
 
 if __name__ == "__main__":
