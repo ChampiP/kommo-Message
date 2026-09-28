@@ -13,6 +13,9 @@ from config import (
     KOMMO_PASSWORD,
     KOMMO_SESSION_REFRESH_INTERVAL,
 )
+from app.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class AuthError(Exception):
@@ -31,27 +34,46 @@ class KommoAuth:
         base = KOMMO_BASE_URL.rstrip("/")
         session = requests.Session()
 
-        print(f"\n[AUTH] ── Nueva sesión ─────────────────────────────────────")
+        logger.info("Starting Kommo authentication login")
 
-        # 1. GET / → obtiene cookies (csrf_token)
-        session.get(f"{base}/")
+        # 1. GET / → obtiene cookies (csrf_token). No raise_for_status porque Kommo
+        # puede devolver 401 para visitas no autenticadas mientras establece cookies.
+        try:
+            session.get(f"{base}/")
+        except requests.RequestException as e:
+            logger.error("Failed to reach Kommo base URL during login: %s", e)
+            raise AuthError(f"Error al conectar con Kommo: {e}")
+
         csrf_token = session.cookies.get("csrf_token")
-        print(f"[AUTH] csrf_token      : {csrf_token}")
+        if not csrf_token:
+            logger.warning("CSRF token not found in initial Kommo cookies")
 
         # 2. POST /oauth2/authorize con usuario, contraseña y csrf_token
-        session.post(
-            f"{base}/oauth2/authorize",
-            json={
-                "username": KOMMO_USERNAME,
-                "password": KOMMO_PASSWORD,
-                "csrf_token": csrf_token,
-                "temporary_auth": "N",
-            },
-        )
+        try:
+            res = session.post(
+                f"{base}/oauth2/authorize",
+                json={
+                    "username": KOMMO_USERNAME,
+                    "password": KOMMO_PASSWORD,
+                    "csrf_token": csrf_token,
+                    "temporary_auth": "N",
+                },
+            )
+        except requests.RequestException as e:
+            logger.error("Network error during Kommo login authorization: %s", e)
+            raise AuthError(f"Error en autorización Kommo: {e}")
 
-        cookies_obtenidas = dict(session.cookies)
-        print(f"[AUTH] Cookies activas : { {k: v[:20]+'...' if len(v) > 20 else v for k, v in cookies_obtenidas.items()} }")
-        print(f"[AUTH] ─────────────────────────────────────────────────────\n")
+        cookie_names = list(session.cookies.keys())
+        if res.status_code not in (200, 302) and not session.cookies.get("session_id"):
+            logger.error(
+                "Kommo login returned status_code=%d without session cookie",
+                res.status_code,
+            )
+            raise AuthError(f"Kommo login falló: status {res.status_code}")
+
+        logger.info(
+            "Kommo authentication successful: active_cookie_names=%s", cookie_names
+        )
 
         with self._lock:
             self._session = session
@@ -71,9 +93,9 @@ class KommoAuth:
                 break
             try:
                 self.login()
-                print("[*] Sesión Kommo renovada.")
+                logger.info("Kommo session renewed successfully")
             except Exception as e:
-                print(f"[-] Error al renovar sesión: {e}")
+                logger.error("Error renewing Kommo session: %s", e)
 
     def start_background_refresh(self) -> None:
         if self._refresh_thread and self._refresh_thread.is_alive():
@@ -82,7 +104,10 @@ class KommoAuth:
         self.login()
         self._refresh_thread = threading.Thread(target=self._refresh_loop, daemon=True)
         self._refresh_thread.start()
-        print("[+] Refresh de sesión en segundo plano iniciado.")
+        logger.info(
+            "Background session refresh started (interval=%ds)",
+            KOMMO_SESSION_REFRESH_INTERVAL,
+        )
 
     def stop_background_refresh(self) -> None:
         self._stop = True
