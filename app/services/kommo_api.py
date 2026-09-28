@@ -5,7 +5,7 @@ Usa requests.Session (cookies) en lugar de Bearer.
 import requests
 from typing import Optional, Any
 
-from app.core.config import KOMMO_BASE_URL, KOMMO_AMOJO_BASE_URL
+from app.core.config import KOMMO_BASE_URL, KOMMO_AMOJO_BASE_URL, DEFAULT_HTTP_TIMEOUT
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -52,14 +52,14 @@ def get_crm_account_id(
     """GET /api/v4/account -> id (crm_account_id). Usa cookies de sesión."""
     url = f"{KOMMO_BASE_URL.rstrip('/')}/api/v4/account"
     try:
-        res = session.get(url, headers=_session_headers())
+        res = session.get(url, headers=_session_headers(), timeout=DEFAULT_HTTP_TIMEOUT)
         if res.status_code in (401, 403) and auth is not None:
             logger.warning(
                 "Kommo /api/v4/account returned status_code=%d, attempting session recovery",
                 res.status_code,
             )
             session = _recover_kommo_session(auth, session)
-            res = session.get(url, headers=_session_headers())
+            res = session.get(url, headers=_session_headers(), timeout=DEFAULT_HTTP_TIMEOUT)
         res.raise_for_status()
         data = res.json()
         account_id = data.get("id")
@@ -89,7 +89,7 @@ def get_talk_by_chat_id(
         "order[sort_type]": "desc",
     }
     try:
-        res = session.get(url, params=params, headers=_session_headers())
+        res = session.get(url, params=params, headers=_session_headers(), timeout=DEFAULT_HTTP_TIMEOUT)
         if res.status_code in (401, 403) and auth is not None:
             logger.warning(
                 "Kommo inbox list returned status_code=%d for chat_id=%s, attempting session recovery",
@@ -97,7 +97,7 @@ def get_talk_by_chat_id(
                 chat_id,
             )
             session = _recover_kommo_session(auth, session)
-            res = session.get(url, params=params, headers=_session_headers())
+            res = session.get(url, params=params, headers=_session_headers(), timeout=DEFAULT_HTTP_TIMEOUT)
         res.raise_for_status()
         data = res.json()
     except requests.RequestException as e:
@@ -168,7 +168,7 @@ def get_recipient_id(
     }
 
     try:
-        res = requests.get(url, params=params, headers=headers)
+        res = requests.get(url, params=params, headers=headers, timeout=DEFAULT_HTTP_TIMEOUT)
         if res.status_code in (401, 403) and amojo is not None:
             logger.warning(
                 "Amojo messages returned status_code=%d for chat_id=%s, attempting token recovery",
@@ -180,7 +180,7 @@ def get_recipient_id(
                 current_uuid = new_uuid
             url = f"{KOMMO_AMOJO_BASE_URL.rstrip('/')}/v1/chats/{current_uuid}/{chat_id}/messages"
             headers["X-Auth-Token"] = current_token
-            res = requests.get(url, params=params, headers=headers)
+            res = requests.get(url, params=params, headers=headers, timeout=DEFAULT_HTTP_TIMEOUT)
         res.raise_for_status()
     except requests.RequestException as e:
         status = getattr(getattr(e, "response", None), "status_code", "N/A")

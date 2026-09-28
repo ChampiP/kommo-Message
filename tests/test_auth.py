@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 import requests
 
+from app.core.config import DEFAULT_HTTP_TIMEOUT
 from app.services.auth import KommoAuth, AuthError
 
 
@@ -129,6 +130,79 @@ class TestKommoAuth(unittest.TestCase):
 
         with self.assertRaises(AuthError):
             self.auth.login()
+
+    @patch("requests.Session")
+    def test_login_strict_validation_success_200_and_302_with_cookie(self, mock_session_cls):
+        mock_session_instance = MagicMock()
+        mock_session_instance.cookies.get.side_effect = lambda key: {
+            "csrf_token": "csrf-val",
+            "session_id": "session-val",
+        }.get(key)
+        auth_res = MagicMock()
+        auth_res.status_code = 200
+        mock_session_instance.post.return_value = auth_res
+        mock_session_cls.return_value = mock_session_instance
+
+        # 200 with session_id succeeds
+        s = self.auth.login()
+        self.assertEqual(s, mock_session_instance)
+
+        # 302 with session_id succeeds
+        auth_res.status_code = 302
+        s = self.auth.login()
+        self.assertEqual(s, mock_session_instance)
+
+    @patch("requests.Session")
+    def test_login_strict_validation_fails_without_session_id_cookie(self, mock_session_cls):
+        mock_session_instance = MagicMock()
+        mock_session_instance.cookies.get.side_effect = lambda key: {
+            "csrf_token": "csrf-val",
+        }.get(key)
+        auth_res = MagicMock()
+        auth_res.status_code = 200
+        mock_session_instance.post.return_value = auth_res
+        mock_session_cls.return_value = mock_session_instance
+
+        with self.assertRaises(AuthError):
+            self.auth.login()
+
+        auth_res.status_code = 302
+        with self.assertRaises(AuthError):
+            self.auth.login()
+
+    @patch("requests.Session")
+    def test_login_strict_validation_fails_on_non_200_302_even_with_cookie(self, mock_session_cls):
+        mock_session_instance = MagicMock()
+        mock_session_instance.cookies.get.side_effect = lambda key: {
+            "csrf_token": "csrf-val",
+            "session_id": "session-val",
+        }.get(key)
+        auth_res = MagicMock()
+        auth_res.status_code = 401
+        mock_session_instance.post.return_value = auth_res
+        mock_session_cls.return_value = mock_session_instance
+
+        with self.assertRaises(AuthError):
+            self.auth.login()
+
+    @patch("requests.Session")
+    def test_login_propagates_http_timeout(self, mock_session_cls):
+        mock_session_instance = MagicMock()
+        mock_session_instance.cookies.get.side_effect = lambda key: {
+            "csrf_token": "csrf-val",
+            "session_id": "session-val",
+        }.get(key)
+        auth_res = MagicMock()
+        auth_res.status_code = 200
+        mock_session_instance.post.return_value = auth_res
+        mock_session_cls.return_value = mock_session_instance
+
+        self.auth.login()
+
+        mock_session_instance.get.assert_called_once()
+        self.assertEqual(mock_session_instance.get.call_args[1].get("timeout"), DEFAULT_HTTP_TIMEOUT)
+        mock_session_instance.post.assert_called_once()
+        self.assertEqual(mock_session_instance.post.call_args[1].get("timeout"), DEFAULT_HTTP_TIMEOUT)
 
 
 if __name__ == "__main__":
