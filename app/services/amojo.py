@@ -11,7 +11,7 @@ import requests
 from typing import Optional, Callable
 from datetime import datetime
 
-from app.core.config import KOMMO_BASE_URL
+from app.core.config import KOMMO_BASE_URL, DEFAULT_HTTP_TIMEOUT
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -60,6 +60,7 @@ class AmojoSession:
                 url,
                 data={"request[chats][session][action]": "create"},
                 headers={"X-Requested-With": "XMLHttpRequest"},
+                timeout=DEFAULT_HTTP_TIMEOUT,
             )
             if res.status_code in (401, 403) and self._auth_recovery is not None:
                 logger.warning(
@@ -71,6 +72,7 @@ class AmojoSession:
                     url,
                     data={"request[chats][session][action]": "create"},
                     headers={"X-Requested-With": "XMLHttpRequest"},
+                    timeout=DEFAULT_HTTP_TIMEOUT,
                 )
         except requests.RequestException as e:
             logger.error("Network error during Amojo session refresh: %s", e)
@@ -111,21 +113,25 @@ class AmojoSession:
         with self._lock:
             self._perform_refresh(session=session, motivo=motivo)
 
+    def get_credentials(self) -> tuple[str, str]:
+        """
+        Obtiene (x_auth_token, session_account_uuid) en caché o genera sesión en primera petición.
+        Operación atómica bajo un solo lock.
+        """
+        with self._lock:
+            if not self._x_auth_token or not self._session_account_uuid:
+                self._perform_refresh(motivo="primera peticion / sin cache")
+            return self._x_auth_token, self._session_account_uuid
+
     def get_x_auth_token(self) -> str:
         """Obtiene el x_auth_token en caché o lo genera en primera petición."""
-        with self._lock:
-            if self._x_auth_token:
-                return self._x_auth_token
-            self._perform_refresh(motivo="primera peticion / sin cache")
-            return self._x_auth_token
+        token, _ = self.get_credentials()
+        return token
 
     def get_session_account_uuid(self) -> str:
         """Obtiene el session_account_uuid en caché o genera sesión en primera petición."""
-        with self._lock:
-            if self._session_account_uuid:
-                return self._session_account_uuid
-            self._perform_refresh(motivo="primera peticion / sin cache")
-            return self._session_account_uuid
+        _, uuid = self.get_credentials()
+        return uuid
 
     def invalidate(self) -> None:
         """Invalida la caché del token Amojo y UUID de cuenta."""
@@ -135,10 +141,12 @@ class AmojoSession:
             self._expired_at = None
             logger.info("Amojo in-memory token invalidated")
 
-    def recover_token(self, failed_token: Optional[str] = None) -> str:
+    def recover_session(
+        self, failed_token: Optional[str] = None
+    ) -> tuple[str, str]:
         """
-        Recupera el token Amojo en modo single-flight.
-        Si otro hilo ya renovó el token mientras se esperaba el lock, reutiliza el nuevo token.
+        Recupera la sesión Amojo y retorna (x_auth_token, session_account_uuid).
+        Retorna el par consistente bajo una sola adquisición de lock.
         """
         with self._lock:
             if (
@@ -147,21 +155,21 @@ class AmojoSession:
                 and self._x_auth_token != failed_token
             ):
                 logger.info(
-                    "Amojo token was already recovered by another thread; reusing updated token"
+                    "Amojo token was already recovered by another thread; reusing updated credentials"
                 )
-                return self._x_auth_token
+                return self._x_auth_token, self._session_account_uuid
 
-            logger.info("Recovering Amojo token via chats/session")
+            logger.info("Recovering Amojo session via chats/session")
             self._perform_refresh(motivo="auth failure / 401-403")
-            return self._x_auth_token
+            return self._x_auth_token, self._session_account_uuid
 
-    def recover_session(
-        self, failed_token: Optional[str] = None
-    ) -> tuple[str, str]:
-        """Recupera la sesión Amojo y retorna (x_auth_token, session_account_uuid)."""
-        token = self.recover_token(failed_token=failed_token)
-        with self._lock:
-            return token, self._session_account_uuid
+    def recover_token(self, failed_token: Optional[str] = None) -> str:
+        """
+        Recupera el token Amojo en modo single-flight.
+        Si otro hilo ya renovó el token mientras se esperaba el lock, reutiliza el nuevo token.
+        """
+        token, _ = self.recover_session(failed_token=failed_token)
+        return token
 
     def _refresh_loop(self) -> None:
         """Refresca el token cada 10 minutos en segundo plano."""

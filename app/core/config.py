@@ -19,3 +19,7 @@ KOMMO_PASSWORD = os.getenv("KOMMO_PASSWORD")
 
 # Cada cuántos segundos se hace re-login para renovar cookies (default 30 min)
 KOMMO_SESSION_REFRESH_INTERVAL = int(os.getenv("KOMMO_SESSION_REFRESH_INTERVAL", 1800))
+
+# Timeout para peticiones HTTP a Kommo/Amojo: connect 5s, read 15s
+DEFAULT_HTTP_TIMEOUT = (5, 15)
+KOMMO_HTTP_TIMEOUT = DEFAULT_HTTP_TIMEOUT

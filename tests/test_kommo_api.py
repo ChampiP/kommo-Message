@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 import requests
 
+from app.core.config import DEFAULT_HTTP_TIMEOUT
 from app.services.kommo_api import (
     get_crm_account_id,
     get_talk_by_chat_id,
@@ -191,6 +192,96 @@ class TestKommoApiRecovery(unittest.TestCase):
 
         self.mock_amojo.recover_token.assert_not_called()
         self.mock_amojo.recover_session.assert_not_called()
+
+    def test_get_crm_account_id_propagates_http_timeout(self):
+        res = MagicMock()
+        res.status_code = 200
+        res.json.return_value = {"id": 12345}
+        self.mock_session.get.return_value = res
+
+        get_crm_account_id(self.mock_session, auth=self.mock_auth)
+
+        self.mock_session.get.assert_called_once()
+        self.assertEqual(self.mock_session.get.call_args[1].get("timeout"), DEFAULT_HTTP_TIMEOUT)
+
+    def test_get_crm_account_id_propagates_http_timeout_on_recovery(self):
+        res_401 = MagicMock()
+        res_401.status_code = 401
+        res_200 = MagicMock()
+        res_200.status_code = 200
+        res_200.json.return_value = {"id": 54321}
+
+        new_session = MagicMock()
+        new_session.get.return_value = res_200
+
+        self.mock_session.get.return_value = res_401
+        self.mock_auth.recover_session.return_value = new_session
+
+        get_crm_account_id(self.mock_session, auth=self.mock_auth)
+
+        self.assertEqual(self.mock_session.get.call_args[1].get("timeout"), DEFAULT_HTTP_TIMEOUT)
+        self.assertEqual(new_session.get.call_args[1].get("timeout"), DEFAULT_HTTP_TIMEOUT)
+
+    def test_get_talk_by_chat_id_propagates_http_timeout(self):
+        res = MagicMock()
+        res.status_code = 200
+        res.json.return_value = {
+            "_embedded": {"talks": [{"id": 1, "contact_id": 2, "chat_id": "c1"}]}
+        }
+        self.mock_session.get.return_value = res
+
+        get_talk_by_chat_id(self.mock_session, "c1", auth=self.mock_auth)
+
+        self.mock_session.get.assert_called_once()
+        self.assertEqual(self.mock_session.get.call_args[1].get("timeout"), DEFAULT_HTTP_TIMEOUT)
+
+    def test_get_talk_by_chat_id_propagates_http_timeout_on_recovery(self):
+        res_401 = MagicMock()
+        res_401.status_code = 401
+        res_200 = MagicMock()
+        res_200.status_code = 200
+        res_200.json.return_value = {
+            "_embedded": {"talks": [{"id": 1, "contact_id": 2, "chat_id": "c1"}]}
+        }
+
+        new_session = MagicMock()
+        new_session.get.return_value = res_200
+
+        self.mock_session.get.return_value = res_401
+        self.mock_auth.recover_session.return_value = new_session
+
+        get_talk_by_chat_id(self.mock_session, "c1", auth=self.mock_auth)
+
+        self.assertEqual(self.mock_session.get.call_args[1].get("timeout"), DEFAULT_HTTP_TIMEOUT)
+        self.assertEqual(new_session.get.call_args[1].get("timeout"), DEFAULT_HTTP_TIMEOUT)
+
+    @patch("requests.get")
+    def test_get_recipient_id_propagates_http_timeout(self, mock_get):
+        res = MagicMock()
+        res.status_code = 200
+        res.json.return_value = [{"id": "m1", "recipient": {"id": "r1"}}]
+        mock_get.return_value = res
+
+        get_recipient_id("tok", "uuid", "c1", amojo=self.mock_amojo)
+
+        mock_get.assert_called_once()
+        self.assertEqual(mock_get.call_args[1].get("timeout"), DEFAULT_HTTP_TIMEOUT)
+
+    @patch("requests.get")
+    def test_get_recipient_id_propagates_http_timeout_on_recovery(self, mock_get):
+        res_401 = MagicMock()
+        res_401.status_code = 401
+        res_200 = MagicMock()
+        res_200.status_code = 200
+        res_200.json.return_value = [{"id": "m1", "recipient": {"id": "r-rec"}}]
+
+        mock_get.side_effect = [res_401, res_200]
+        self.mock_amojo.recover_session.return_value = ("new-tok", "new-uuid")
+
+        get_recipient_id("tok", "uuid", "c1", amojo=self.mock_amojo)
+
+        self.assertEqual(mock_get.call_args_list[0][1].get("timeout"), DEFAULT_HTTP_TIMEOUT)
+        self.assertEqual(mock_get.call_args_list[1][1].get("timeout"), DEFAULT_HTTP_TIMEOUT)
 
 
 if __name__ == "__main__":

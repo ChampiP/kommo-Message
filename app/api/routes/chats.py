@@ -43,9 +43,8 @@ def get_chat_tokens(
         raise HTTPException(status_code=503, detail=f"Sesión no disponible: {str(e)}")
 
     try:
-        x_auth_token = amojo.get_x_auth_token()
-        session_account_uuid = amojo.get_session_account_uuid()
-    except AmojoError as e:
+        x_auth_token, session_account_uuid = amojo.get_credentials()
+    except (AmojoError, AuthError) as e:
         logger.error("Amojo session unavailable for chat_id=%s: %s", chat_id, e)
         raise HTTPException(status_code=503, detail=f"Sesión Amojo no disponible: {str(e)}")
 
@@ -82,12 +81,18 @@ def get_chat_tokens(
         )
         recipient_id = None
 
+    try:
+        current_x_auth_token, current_session_account_uuid = amojo.get_credentials()
+    except (AmojoError, AuthError) as e:
+        logger.error("Amojo session unavailable for chat_id=%s: %s", chat_id, e)
+        raise HTTPException(status_code=503, detail=f"Sesión Amojo no disponible: {str(e)}")
+
     logger.info("Successfully resolved tokens for chat_id=%s", chat_id)
     return {
         "recipient_id": recipient_id,
         "crm_dialog_id": crm_dialog_id,
         "crm_contact_id": crm_contact_id,
         "crm_account_id": crm_account_id,
-        "x_auth_token": amojo.get_x_auth_token(),
-        "session_account_uuid": amojo.get_session_account_uuid(),
+        "x_auth_token": current_x_auth_token,
+        "session_account_uuid": current_session_account_uuid,
     }
