@@ -19,8 +19,7 @@ class TestKommoAuth(unittest.TestCase):
 
     def test_background_refresh_not_running_by_default(self):
         self.assertIsNone(self.auth._session)
-        self.assertIsNone(self.auth._refresh_thread)
-        self.assertFalse(self.auth._stop)
+        self.assertFalse(hasattr(self.auth, "start_background_refresh"))
 
     @patch("requests.Session")
     def test_get_session_caches_and_reuses_session(self, mock_session_cls):

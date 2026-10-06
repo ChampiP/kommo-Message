@@ -35,7 +35,6 @@ API en Python para autenticar una cuenta de Kommo, obtener credenciales de sesi�
    KOMMO_WS_URL=wss://<ws-host>/<tu-subdominio>/v2/rtm?stand=v16
    KOMMO_USERNAME=tu_usuario
    KOMMO_PASSWORD=tu_contraseña
-   KOMMO_SESSION_REFRESH_INTERVAL=1800
    ```
 
 3. No subas `.env` al repositorio. El archivo está excluido mediante `.gitignore`.

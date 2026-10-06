@@ -6,7 +6,6 @@ Reglas:
 - Logging seguro y estructurado en cada refresco (sin exponer tokens ni cookies).
 """
 import threading
-import time
 import requests
 from typing import Optional, Callable
 from datetime import datetime
@@ -15,8 +14,6 @@ from app.core.config import KOMMO_BASE_URL, DEFAULT_HTTP_TIMEOUT
 from app.logging_config import get_logger
 
 logger = get_logger(__name__)
-
-REFRESH_INTERVAL = 600  # 10 minutos (compatibilidad)
 
 
 class AmojoError(Exception):
@@ -41,8 +38,6 @@ class AmojoSession:
         self._session_account_uuid: Optional[str] = None
         self._expired_at: Optional[int] = None
         self._lock = threading.Lock()
-        self._refresh_thread: Optional[threading.Thread] = None
-        self._stop = False
 
     def _perform_refresh(
         self, session: Optional[requests.Session] = None, motivo: str = "forzado"
@@ -170,32 +165,3 @@ class AmojoSession:
         """
         token, _ = self.recover_session(failed_token=failed_token)
         return token
-
-    def _refresh_loop(self) -> None:
-        """Refresca el token cada 10 minutos en segundo plano."""
-        while not self._stop:
-            for _ in range(REFRESH_INTERVAL):
-                if self._stop:
-                    return
-                time.sleep(1)
-            try:
-                session = self._session_provider()
-                self.refresh_session(session, motivo="background cada 10 min")
-            except Exception as e:
-                logger.error("Error in Amojo background refresh: %s", e)
-
-    def start_background_refresh(self) -> None:
-        if self._refresh_thread and self._refresh_thread.is_alive():
-            return
-        self._stop = False
-        session = self._session_provider()
-        self.refresh_session(session, motivo="inicio del servidor")
-        self._refresh_thread = threading.Thread(target=self._refresh_loop, daemon=True)
-        self._refresh_thread.start()
-        logger.info(
-            "Amojo automatic refresh started (interval=%d min)",
-            REFRESH_INTERVAL // 60,
-        )
-
-    def stop_background_refresh(self) -> None:
-        self._stop = True

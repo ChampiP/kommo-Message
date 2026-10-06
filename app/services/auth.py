@@ -3,7 +3,6 @@ Autenticación Kommo via login usuario/contraseña.
 Flujo: GET / → csrf_token; POST /oauth2/authorize → cookies de sesión.
 """
 import threading
-import time
 import requests
 from typing import Optional
 
@@ -11,7 +10,6 @@ from app.core.config import (
     KOMMO_BASE_URL,
     KOMMO_USERNAME,
     KOMMO_PASSWORD,
-    KOMMO_SESSION_REFRESH_INTERVAL,
     DEFAULT_HTTP_TIMEOUT,
 )
 from app.logging_config import get_logger
@@ -28,8 +26,6 @@ class KommoAuth:
     def __init__(self):
         self._session: Optional[requests.Session] = None
         self._lock = threading.Lock()
-        self._refresh_thread: Optional[threading.Thread] = None
-        self._stop = False
 
     def _perform_login(self) -> requests.Session:
         base = KOMMO_BASE_URL.rstrip("/")
@@ -125,29 +121,3 @@ class KommoAuth:
         with self._lock:
             self._session = None
             logger.info("Kommo in-memory session invalidated")
-
-    def _refresh_loop(self) -> None:
-        while not self._stop:
-            time.sleep(KOMMO_SESSION_REFRESH_INTERVAL)
-            if self._stop:
-                break
-            try:
-                self.login()
-                logger.info("Kommo session renewed successfully")
-            except Exception as e:
-                logger.error("Error renewing Kommo session: %s", e)
-
-    def start_background_refresh(self) -> None:
-        if self._refresh_thread and self._refresh_thread.is_alive():
-            return
-        self._stop = False
-        self.login()
-        self._refresh_thread = threading.Thread(target=self._refresh_loop, daemon=True)
-        self._refresh_thread.start()
-        logger.info(
-            "Background session refresh started (interval=%ds)",
-            KOMMO_SESSION_REFRESH_INTERVAL,
-        )
-
-    def stop_background_refresh(self) -> None:
-        self._stop = True

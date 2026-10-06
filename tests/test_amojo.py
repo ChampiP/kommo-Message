@@ -42,8 +42,7 @@ class TestAmojoSession(unittest.TestCase):
     def test_background_refresh_not_running_by_default(self):
         self.assertIsNone(self.amojo._x_auth_token)
         self.assertIsNone(self.amojo._session_account_uuid)
-        self.assertIsNone(self.amojo._refresh_thread)
-        self.assertFalse(self.amojo._stop)
+        self.assertFalse(hasattr(self.amojo, "start_background_refresh"))
 
     def test_get_x_auth_token_lazy_fetch_and_caching(self):
         self.mock_session.post.return_value = self._mock_success_response("tok-1", "acc-1")
