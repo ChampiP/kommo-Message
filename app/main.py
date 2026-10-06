@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from app.services.auth import KommoAuth
 from app.services.amojo import AmojoSession
 from app.api.routes import chats
+from app.middleware import RequestContextMiddleware
 
 
 @asynccontextmanager
@@ -35,6 +36,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(RequestContextMiddleware)
 app.include_router(chats.router)
 
 

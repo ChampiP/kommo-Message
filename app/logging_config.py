@@ -2,9 +2,16 @@
 Configuración centralizada de logging seguro.
 Redacta credenciales, tokens, cookies y datos sensibles de los logs.
 """
+import json
 import logging
+import os
 import re
+from contextvars import ContextVar
+from datetime import datetime, timezone
 from typing import Any
+
+# Correlation id of the request being served (set by RequestContextMiddleware)
+request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 
 # Claves cuyos valores deben ser redactados
 SENSITIVE_KEYS = {
@@ -84,6 +91,43 @@ class RedactingFormatter(logging.Formatter):
         return redact_text(formatted)
 
 
+_RESERVED = set(
+    logging.LogRecord("", 0, "", 0, "", (), None).__dict__
+) | {"message", "asctime", "color_message"}
+
+
+class JsonFormatter(logging.Formatter):
+    """Single-line JSON formatter using ECS-style flattened dot keys, fully redacted."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        ts = datetime.fromtimestamp(record.created, timezone.utc)
+        doc: dict[str, Any] = {
+            "@timestamp": ts.strftime("%Y-%m-%dT%H:%M:%S.") + f"{ts.microsecond // 1000:03d}Z",
+            "log.level": record.levelname,
+            "log.logger": record.name,
+            "message": redact_text(record.getMessage()),
+            "service.name": os.getenv("SERVICE_NAME", "kommo-message"),
+        }
+        if env := os.getenv("APP_ENV"):
+            doc["service.environment"] = env
+        doc["process.pid"] = record.process
+        doc["process.thread.name"] = record.threadName
+        doc["log.origin.file.name"] = record.filename
+        doc["log.origin.file.line"] = record.lineno
+        doc["log.origin.function"] = record.funcName
+        if (rid := request_id_var.get()) is not None:
+            doc["http.request.id"] = rid
+        if record.exc_info and record.exc_info[0] is not None:
+            exc_type, exc, _ = record.exc_info
+            doc["error.type"] = exc_type.__name__
+            doc["error.message"] = redact_text(str(exc))
+            doc["error.stack_trace"] = redact_text(self.formatException(record.exc_info))
+        for key, value in record.__dict__.items():
+            if key not in _RESERVED and key not in doc:
+                doc[key] = redact_data({key: value})[key]
+        return json.dumps(doc, ensure_ascii=False, default=str)
+
+
 class SensitiveDataFilter(logging.Filter):
     """Filtro de logging que asegura que argumentos y mensajes no contengan credenciales."""
 
@@ -115,9 +159,10 @@ def setup_logging(level: int = logging.INFO) -> None:
     if _logging_configured:
         return
 
-    formatter = RedactingFormatter(
-        "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-    )
+    formatter = JsonFormatter()
+    level = logging.getLevelName(os.getenv("LOG_LEVEL", "").upper()) if os.getenv("LOG_LEVEL") else level
+    if not isinstance(level, int):
+        level = logging.INFO
     filter_ = SensitiveDataFilter()
 
     root_logger = logging.getLogger()
@@ -133,6 +178,16 @@ def setup_logging(level: int = logging.INFO) -> None:
         console_handler.setFormatter(formatter)
         console_handler.addFilter(filter_)
         root_logger.addHandler(console_handler)
+
+    # Route uvicorn through the root JSON handler
+    for name in ("uvicorn", "uvicorn.error"):
+        uv_logger = logging.getLogger(name)
+        uv_logger.handlers.clear()
+        uv_logger.propagate = True
+    # RequestContextMiddleware owns access logs; silence uvicorn's duplicate
+    access_logger = logging.getLogger("uvicorn.access")
+    access_logger.handlers.clear()
+    access_logger.propagate = False
 
     _logging_configured = True
 

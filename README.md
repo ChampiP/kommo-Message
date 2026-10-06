@@ -102,3 +102,13 @@ docker exec kommo-mesager python -m unittest discover -s tests -v
 ## Licencia
 
 Este proyecto se distribuye bajo la licencia [MIT](LICENSE).
+
+## Logging
+
+Cada línea de log (aplicación y uvicorn) es un objeto JSON de una sola línea, con secretos redactados.
+
+Campos: `@timestamp` (UTC, ISO-8601), `log.level`, `log.logger`, `message`, `service.name`, `service.environment` (si `APP_ENV` está definido), `process.pid`, `process.thread.name`, `log.origin.file.name`, `log.origin.file.line`, `log.origin.function`, `http.request.id`, `error.type`, `error.message`, `error.stack_trace` y campos extra (por ejemplo `url.path`, `http.response.status_code`, `event.duration_ms`).
+
+Variables de entorno: `LOG_LEVEL` (por defecto `INFO`), `SERVICE_NAME` (por defecto `kommo-message`), `APP_ENV` (opcional).
+
+Cabecera `X-Request-ID`: si llega con formato válido (`[A-Za-z0-9._-]{1,128}`) se reutiliza; si no, se genera un UUID. Siempre se devuelve en la respuesta y aparece en cada log de la petición. `/health` no genera log de acceso.
